@@ -1,7 +1,7 @@
 #ifndef _SIGNALS_H_
 #define _SIGNALS_H_
 
-// #include <Arduino.h>
+#include <Arduino.h>
 #include <utility>
 
 /** Interface for delegates with a specific set of arguments **/
