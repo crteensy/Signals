@@ -1,7 +1,6 @@
 #ifndef _SIGNALS_H_
 #define _SIGNALS_H_
 
-#include <Arduino.h>
 #include <utility>
 
 /** Interface for delegates with a specific set of arguments **/
@@ -23,7 +22,6 @@ class ObjDelegate : public AbstractDelegate<args...>
 
     /** constructor **/
     ObjDelegate(T& obj, ObjMemFn memFn)
-//      : obj_{obj}, //error: invalid initialization of non-const reference of type 'Watch&' from an rvalue of type '<brace-enclosed initializer list>'
       : obj_(obj),
       memFn_{memFn} // here the brace-enclosed list works, probably because memFn is _not_ a reference
     {
@@ -81,19 +79,24 @@ class Signal
 
     /** constructor **/
     Signal()
-      : connections_(NULL)
+      : connections_(NULL),
+      blocked_(false)
       {
       }
 
-    /** call operator that calls all connected delegates.
-      The most recently connected delegate will be called first **/
+    /** call operator that notifes all connections associated with this Signal.
+      The most recently associated connection will be notified first **/
     void operator()(args&&... a) const
     {
-      auto c = connections_;
-      while(c != NULL)
+      // only notify connections if this signal is not blocked
+      if (!blocked())
       {
-        (c->delegate())(std::forward<args>(a)...);
-        c = c->next();
+        auto c = connections_;
+        while(c != NULL)
+        {
+          (*c)(std::forward<args>(a)...);
+          c = c->next();
+        }
       }
     }
 
@@ -114,7 +117,6 @@ class Signal
       connection_p c = connections_;
       if (c == conn)
       {
-//        std::cout << "signal::disconnect(): removing head" << std::endl;
         connections_ = connections_->next();
         conn->next_ = NULL;
         conn->signal_ = NULL;
@@ -124,7 +126,6 @@ class Signal
       {
         if (c->next() == conn)
         {
-//          std::cout << "signal::disconnect(): removing in between" << std::endl;
           c->next_ = conn->next();
           conn->next_ = NULL;
           conn->signal_ = NULL;
@@ -134,14 +135,30 @@ class Signal
       }
     }
 
+    /** block events from this signal **/
+    void block()
+    {
+      blocked_ = true;
+    }
+    
+    /** unblock events from this signal **/
+    void unblock()
+    {
+      blocked_ = false;
+    }
+    
+    /** is this signal blocked? **/
+    bool blocked() const
+    {
+      return blocked_;
+    }
+
     /** destructor. disconnects all connections **/
     ~Signal()
     {
-//      std::cout << "~Signal()" << std::endl;
       connection_p p = connections_;
       while(p != NULL)
       {
-//        std::cout << "~Signal(): disconnecting connection in destructor" << std::endl;
         connection_p n = p->next();
         disconnect(p);
         p = n;
@@ -152,6 +169,7 @@ class Signal
 
   private:
     connection_p connections_;
+    bool blocked_;
 };
 
 /** connection class that can be connected to a signal **/
@@ -165,7 +183,8 @@ class Connection
     Connection(Signal<args...>& signal, T& obj, ReturnType (T::*memFn)(args...))
       : delegate_(new ObjDelegate<T, ReturnType, args...>(obj, memFn)),
       signal_(NULL),
-      next_(NULL)
+      next_(NULL),
+      blocked_(false)
     {
       signal.connect(this);
     }
@@ -176,7 +195,8 @@ class Connection
     Connection(Signal<args...>& signal, ReturnType (*Fn)(args...))
       : delegate_(new FnDelegate<ReturnType, args...>(Fn)),
       signal_(NULL),
-      next_(NULL)
+      next_(NULL),
+      blocked_(false)
     {
       signal.connect(this);
     }
@@ -185,6 +205,15 @@ class Connection
     AbstractDelegate<args...>& delegate() const
     {
       return *delegate_;
+    }
+
+    /** call this connection's delegate if not blocked **/
+    void operator()(args&&... a) const
+    {
+      if (!blocked())
+      {
+        delegate()(std::forward<args>(a)...);
+      }
     }
 
     /** get pointer to next connection in the signal's list **/
@@ -198,14 +227,30 @@ class Connection
     {
       return (signal_ != NULL);
     }
+    
+    /** block events for this connection **/
+    void block()
+    {
+      blocked_ = true;
+    }
+    
+    /** unblock events for this connection **/
+    void unblock()
+    {
+      blocked_ = false;
+    }
+    
+    /** is this connection blocked? **/
+    bool blocked() const
+    {
+      return blocked_;
+    }
 
     /** desctructor. If the signal is still alive, disconnects from it **/
     ~Connection()
     {
-//      std::cout << "~Connection()" << std::endl;
       if (signal_ != NULL)
       {
-//        std::cout << "~Connection(): disconnecting from signal in destructor" << std::endl;
         signal_->disconnect(this);
       }
       delete delegate_;
@@ -218,6 +263,7 @@ class Connection
     AbstractDelegate<args...>* delegate_;
     Signal<args...>* signal_;
     Connection* next_;
+    bool blocked_;
 };
 
 /** free connect function: creates a connection (non-static member function) on the heap
