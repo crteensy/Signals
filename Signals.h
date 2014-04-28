@@ -1,5 +1,5 @@
-#ifndef _SIGNALS_H_
-#define _SIGNALS_H_
+#ifndef SIGNALS_H
+#define SIGNALS_H
 
 #include <utility>
 
@@ -8,7 +8,7 @@ template<typename... args>
 class AbstractDelegate
 {
   public:
-    virtual void operator()(args&&...) const = 0;
+    virtual void operator()(args...) const = 0;
     virtual ~AbstractDelegate() {}
 };
 
@@ -22,13 +22,13 @@ class ObjDelegate : public AbstractDelegate<args...>
 
     /** constructor **/
     ObjDelegate(T& obj, ObjMemFn memFn)
-      : obj_(obj),
+      : obj_(obj), // brace-enclosed initializer list didn't work here
       memFn_{memFn} // here the brace-enclosed list works, probably because memFn is _not_ a reference
     {
     }
 
     /** call operator that calls the stored function on the stored object **/
-    void operator()(args&&... a) const override
+    void operator()(args... a) const override
     {
       (obj_.*memFn_)(std::forward<args>(a)...);
     }
@@ -55,7 +55,7 @@ class FnDelegate : public AbstractDelegate<args...>
     }
 
     /** call operator that calls the stored function **/
-    void operator()(args&&... a) const override
+    void operator()(args... a) const override
     {
       (*fn_)(std::forward<args>(a)...);
     }
@@ -75,27 +75,38 @@ class Signal
 {
   public:
     /** connection pointer typedef **/
-    typedef Connection<args...>* connection_p;
+    using connection_p = Connection<args...>*;
 
     /** constructor **/
     Signal()
-      : connections_(NULL),
+      : connections_(nullptr),
       blocked_(false)
+      {
+      }
+
+    /** copy constructor **/
+    Signal(const Signal& other)
+      : connections_(nullptr),
+      blocked_(other.blocked()) // not sure if this is a good idea
       {
       }
 
     /** call operator that notifes all connections associated with this Signal.
       The most recently associated connection will be notified first **/
-    void operator()(args&&... a) const
+    void operator()(args... a) const
     {
       // only notify connections if this signal is not blocked
       if (!blocked())
       {
         auto c = connections_;
-        while(c != NULL)
+        while(c)
         {
-          (*c)(std::forward<args>(a)...);
-          c = c->next();
+          auto c_next = c->next();
+          if (c_next)
+            (*c)(a...);
+          else
+            (*c)(std::forward<args>(a)...); // last use, can forward
+          c = c_next;
         }
       }
     }
@@ -118,17 +129,17 @@ class Signal
       if (c == conn)
       {
         connections_ = connections_->next();
-        conn->next_ = NULL;
-        conn->signal_ = NULL;
+        conn->next_ = nullptr;
+        conn->signal_ = nullptr;
         return;
       }
-      while(c != NULL)
+      while(c != nullptr)
       {
         if (c->next() == conn)
         {
           c->next_ = conn->next();
-          conn->next_ = NULL;
-          conn->signal_ = NULL;
+          conn->next_ = nullptr;
+          conn->signal_ = nullptr;
           return;
         }
         c = c->next();
@@ -140,13 +151,13 @@ class Signal
     {
       blocked_ = true;
     }
-    
+
     /** unblock events from this signal **/
     void unblock()
     {
       blocked_ = false;
     }
-    
+
     /** is this signal blocked? **/
     bool blocked() const
     {
@@ -157,7 +168,7 @@ class Signal
     ~Signal()
     {
       connection_p p = connections_;
-      while(p != NULL)
+      while(p != nullptr)
       {
         connection_p n = p->next();
         disconnect(p);
@@ -168,6 +179,9 @@ class Signal
     connection_p connections() const {return connections_;}
 
   private:
+    /** don't allow copy assignment **/
+    Signal& operator= (Signal& other);
+
     connection_p connections_;
     bool blocked_;
 };
@@ -182,8 +196,8 @@ class Connection
     template<typename T, typename ReturnType>
     Connection(Signal<args...>& signal, T& obj, ReturnType (T::*memFn)(args...))
       : delegate_(new ObjDelegate<T, ReturnType, args...>(obj, memFn)),
-      signal_(NULL),
-      next_(NULL),
+      signal_(nullptr),
+      next_(nullptr),
       blocked_(false)
     {
       signal.connect(this);
@@ -194,8 +208,8 @@ class Connection
     template<typename ReturnType>
     Connection(Signal<args...>& signal, ReturnType (*Fn)(args...))
       : delegate_(new FnDelegate<ReturnType, args...>(Fn)),
-      signal_(NULL),
-      next_(NULL),
+      signal_(nullptr),
+      next_(nullptr),
       blocked_(false)
     {
       signal.connect(this);
@@ -208,7 +222,7 @@ class Connection
     }
 
     /** call this connection's delegate if not blocked **/
-    void operator()(args&&... a) const
+    void operator()(args... a) const
     {
       if (!blocked())
       {
@@ -225,21 +239,21 @@ class Connection
     /** is this connection connected to a valid signal? **/
     bool connected() const
     {
-      return (signal_ != NULL);
+      return (signal_ != nullptr);
     }
-    
+
     /** block events for this connection **/
     void block()
     {
       blocked_ = true;
     }
-    
+
     /** unblock events for this connection **/
     void unblock()
     {
       blocked_ = false;
     }
-    
+
     /** is this connection blocked? **/
     bool blocked() const
     {
@@ -249,7 +263,7 @@ class Connection
     /** desctructor. If the signal is still alive, disconnects from it **/
     ~Connection()
     {
-      if (signal_ != NULL)
+      if (signal_ != nullptr)
       {
         signal_->disconnect(this);
       }
@@ -260,6 +274,12 @@ class Connection
 
     friend class Signal<args...>;
   private:
+    /** don't allow copy construction **/
+    Connection(const Connection& other);
+
+    /** don't allow copy assignment **/
+    Connection& operator= (Connection& other);
+
     AbstractDelegate<args...>* delegate_;
     Signal<args...>* signal_;
     Connection* next_;
@@ -282,5 +302,6 @@ Connection<args...>* connect(Signal<args...>& signal, ReturnType (*fn)(args...))
   return new Connection<args...>(signal, fn);
 }
 
-#endif // _SIGNALS_H_
+#endif // SIGNALS_H
+
 
