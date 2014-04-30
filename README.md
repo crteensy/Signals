@@ -1,5 +1,12 @@
-Signals
-=======
+Signals - forwarding branch
+===========================
+
+This branch intended for work on the forwarding of Signal, Connection and Delegate function call operator arguments.
+Stack overflow:
+
+- http://codereview.stackexchange.com/q/47098/37034
+- http://stackoverflow.com/q/23323547/692359
+- http://codereview.stackexchange.com/q/48447/37034
 
 Signal and Connection classes for use in embedded systems.
 
